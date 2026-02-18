@@ -27,6 +27,12 @@ enum Commands {
     /// Agent management
     #[command(subcommand)]
     Agent(AgentCommands),
+
+    /// Run verification and security checks
+    Check {
+        /// Work item ID
+        work_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -135,6 +141,14 @@ fn main() {
                 std::process::exit(1);
             });
             commands::agent::nudge(&base, &role, &work_id)
+        }
+
+        Commands::Check { work_id } => {
+            let base = find_repo_root().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            commands::check::run(&base, &work_id)
         }
     };
 
