@@ -40,7 +40,10 @@ pub fn new_work(
 
     // Read config for stack commands
     let config = read_config(&pfm_dir.join("config.json"))?;
-    let stack_name = stack.unwrap_or(&config.default_stack);
+    let detected = detect_stack(base);
+    let stack_name = stack
+        .or(detected.as_deref())
+        .unwrap_or(&config.default_stack);
     let stack_config = config.stacks.get(stack_name)
         .ok_or_else(|| format!("unknown stack: {}", stack_name))?;
 
@@ -91,10 +94,17 @@ pub fn new_work(
         }
     }
 
+    let how = if stack.is_some() {
+        "specified"
+    } else if detected.is_some() {
+        "detected"
+    } else {
+        "default"
+    };
     println!("created work item: {}", work_id);
     println!("  directory: {}", work_dir.display());
     println!("  branch: {}", branch);
-    println!("  stack: {}", stack_name);
+    println!("  stack: {} ({})", stack_name, how);
 
     Ok(work_id)
 }
@@ -147,6 +157,40 @@ pub fn list_work(base: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Auto-detect stack from repo contents.
+/// Checks for marker files in priority order:
+///   1. Gemfile + config/routes.rb (or bin/rails) → rails
+///   2. package.json with react-native dep → react_native
+///   3. package.json → cli_node
+///   4. Gemfile → cli_ruby
+fn detect_stack(base: &Path) -> Option<String> {
+    let has_gemfile = base.join("Gemfile").exists();
+    let has_package_json = base.join("package.json").exists();
+    let has_rails = base.join("config/routes.rb").exists()
+        || base.join("bin/rails").exists()
+        || base.join("config/application.rb").exists();
+
+    if has_gemfile && has_rails {
+        return Some("rails".into());
+    }
+
+    if has_package_json {
+        // Check for react-native in package.json
+        if let Ok(content) = fs::read_to_string(base.join("package.json")) {
+            if content.contains("react-native") {
+                return Some("react_native".into());
+            }
+        }
+        return Some("cli_node".into());
+    }
+
+    if has_gemfile {
+        return Some("cli_ruby".into());
+    }
+
+    None
 }
 
 fn detect_repo_name(base: &Path) -> String {
@@ -267,5 +311,69 @@ mod tests {
         let dir = tempdir().unwrap();
         let result = new_work(dir.path(), "Test", Some("FEAT-X"), None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_detect_stack_rails() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Gemfile"), "gem 'rails'").unwrap();
+        fs::create_dir_all(dir.path().join("config")).unwrap();
+        fs::write(dir.path().join("config/routes.rb"), "").unwrap();
+        assert_eq!(detect_stack(dir.path()), Some("rails".into()));
+    }
+
+    #[test]
+    fn test_detect_stack_rails_via_bin() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Gemfile"), "gem 'rails'").unwrap();
+        fs::create_dir_all(dir.path().join("bin")).unwrap();
+        fs::write(dir.path().join("bin/rails"), "").unwrap();
+        assert_eq!(detect_stack(dir.path()), Some("rails".into()));
+    }
+
+    #[test]
+    fn test_detect_stack_react_native() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{"dependencies":{"react-native":"0.72"}}"#,
+        ).unwrap();
+        assert_eq!(detect_stack(dir.path()), Some("react_native".into()));
+    }
+
+    #[test]
+    fn test_detect_stack_cli_node() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{"dependencies":{"express":"4"}}"#,
+        ).unwrap();
+        assert_eq!(detect_stack(dir.path()), Some("cli_node".into()));
+    }
+
+    #[test]
+    fn test_detect_stack_cli_ruby() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Gemfile"), "gem 'thor'").unwrap();
+        assert_eq!(detect_stack(dir.path()), Some("cli_ruby".into()));
+    }
+
+    #[test]
+    fn test_detect_stack_unknown() {
+        let dir = tempdir().unwrap();
+        assert_eq!(detect_stack(dir.path()), None);
+    }
+
+    #[test]
+    fn test_detect_stack_explicit_overrides() {
+        let dir = tempdir().unwrap();
+        init_test_repo(dir.path());
+        // Repo has no marker files, so detection returns None → falls back to default (rails)
+        // But explicit --stack cli_node should win
+        new_work(dir.path(), "Test", Some("FEAT-EXPLICIT"), Some("cli_node")).unwrap();
+        let state = crate::state::read_state(
+            &dir.path().join(".pfm/work/FEAT-EXPLICIT/state.json"),
+        ).unwrap();
+        assert_eq!(state.commands.verify, "npm test");
     }
 }
