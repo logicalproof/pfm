@@ -33,6 +33,20 @@ enum Commands {
         /// Work item ID
         work_id: String,
     },
+
+    /// Run the full pipeline for a work item
+    Run {
+        /// Work item ID
+        work_id: String,
+
+        /// Stop at this gate (inclusive)
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Execution mode
+        #[arg(long, default_value = "classic")]
+        mode: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -149,6 +163,18 @@ fn main() {
                 std::process::exit(1);
             });
             commands::check::run(&base, &work_id)
+        }
+
+        Commands::Run { work_id, to, mode } => {
+            let base = find_repo_root().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            let mode: commands::run::RunMode = mode.parse().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            commands::run::run(&base, &work_id, to.as_deref(), mode)
         }
     };
 
