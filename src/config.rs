@@ -34,6 +34,10 @@ impl Default for PfmConfig {
             verify: "bundle exec rspec".into(),
             security: "bundle exec brakeman -q".into(),
         });
+        stacks.insert("rust".into(), StackConfig {
+            verify: "cargo test".into(),
+            security: "cargo audit".into(),
+        });
         PfmConfig {
             default_stack: "rails".into(),
             stacks,
@@ -66,6 +70,7 @@ mod tests {
         assert!(config.stacks.contains_key("react_native"));
         assert!(config.stacks.contains_key("cli_node"));
         assert!(config.stacks.contains_key("cli_ruby"));
+        assert!(config.stacks.contains_key("rust"));
     }
 
     #[test]

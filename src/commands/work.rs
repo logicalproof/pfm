@@ -164,10 +164,12 @@ pub fn list_work(base: &Path) -> Result<(), String> {
 ///   1. Gemfile + config/routes.rb (or bin/rails) → rails
 ///   2. package.json with react-native dep → react_native
 ///   3. package.json → cli_node
-///   4. Gemfile → cli_ruby
+///   4. Cargo.toml → rust
+///   5. Gemfile → cli_ruby
 fn detect_stack(base: &Path) -> Option<String> {
     let has_gemfile = base.join("Gemfile").exists();
     let has_package_json = base.join("package.json").exists();
+    let has_cargo_toml = base.join("Cargo.toml").exists();
     let has_rails = base.join("config/routes.rb").exists()
         || base.join("bin/rails").exists()
         || base.join("config/application.rb").exists();
@@ -177,13 +179,16 @@ fn detect_stack(base: &Path) -> Option<String> {
     }
 
     if has_package_json {
-        // Check for react-native in package.json
         if let Ok(content) = fs::read_to_string(base.join("package.json")) {
             if content.contains("react-native") {
                 return Some("react_native".into());
             }
         }
         return Some("cli_node".into());
+    }
+
+    if has_cargo_toml {
+        return Some("rust".into());
     }
 
     if has_gemfile {
@@ -349,6 +354,13 @@ mod tests {
             r#"{"dependencies":{"express":"4"}}"#,
         ).unwrap();
         assert_eq!(detect_stack(dir.path()), Some("cli_node".into()));
+    }
+
+    #[test]
+    fn test_detect_stack_rust() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"foo\"").unwrap();
+        assert_eq!(detect_stack(dir.path()), Some("rust".into()));
     }
 
     #[test]
