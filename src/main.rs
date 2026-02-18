@@ -23,6 +23,10 @@ enum Commands {
     /// Work item management
     #[command(subcommand)]
     Work(WorkCommands),
+
+    /// Agent management
+    #[command(subcommand)]
+    Agent(AgentCommands),
 }
 
 #[derive(Subcommand)]
@@ -43,6 +47,27 @@ enum WorkCommands {
 
     /// List all work items
     List,
+}
+
+#[derive(Subcommand)]
+enum AgentCommands {
+    /// Start a role agent for a work item
+    Start {
+        /// Role name (prd, orchestrator, env, test, implementation, review_security, qa, git)
+        role: String,
+
+        /// Work item ID
+        work_id: String,
+    },
+
+    /// Nudge/resume a role agent
+    Nudge {
+        /// Role name
+        role: String,
+
+        /// Work item ID
+        work_id: String,
+    },
 }
 
 fn find_repo_root() -> Result<PathBuf, String> {
@@ -86,6 +111,30 @@ fn main() {
                 std::process::exit(1);
             });
             commands::work::list_work(&base)
+        }
+
+        Commands::Agent(AgentCommands::Start { role, work_id }) => {
+            let base = find_repo_root().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            let role: state::Role = role.parse().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            commands::agent::start(&base, &role, &work_id)
+        }
+
+        Commands::Agent(AgentCommands::Nudge { role, work_id }) => {
+            let base = find_repo_root().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            let role: state::Role = role.parse().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            commands::agent::nudge(&base, &role, &work_id)
         }
     };
 
