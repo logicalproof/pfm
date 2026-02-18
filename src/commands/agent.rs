@@ -24,9 +24,11 @@ Start by reading:
 3) The most recent file in {work_dir_str}/handoffs/ (if any)
 
 Hard requirements:
+- Ask the user clarifying questions when requirements are ambiguous or incomplete. Do not assume — confirm with the user.
 - Update only the gate you own in state.json (do not modify other gates).
 - Log commands, outputs, and failures in {work_dir_str}/runlog.md.
 - When finished, write a handoff note to {work_dir_str}/handoffs/{{TIMESTAMP}}-{role_name}.md using the standard format.
+- When you are done, tell the user you are finished and they can exit the session with /exit to return to PFM.
 - Stop when your role spec stop condition is met."#
     )
 }
@@ -73,38 +75,38 @@ pub fn start(base: &Path, role: &Role, work_id: &str) -> Result<(), String> {
         base.to_string_lossy().to_string()
     };
 
-    // Try to start in tmux session, fall back to direct execution
-    let session_name = format!("pfm-{}-{}", work_id, role);
+    // Write the bootstrap prompt to a temp file so we don't have shell escaping issues
+    let prompt_file = work_dir.join(".prompt.tmp");
+    fs::write(&prompt_file, &prompt)
+        .map_err(|e| format!("failed to write prompt file: {}", e))?;
 
-    if crate::adapters::tmux::is_available() {
-        let claude_cmd = format!("claude --print \"{}\"", prompt.replace('"', "\\\""));
-        match crate::adapters::tmux::new_session(&session_name, &cwd, &claude_cmd) {
-            Ok(()) => {
-                println!("started {} agent in tmux session: {}", role, session_name);
-
-                // Update workspace
-                let mut state = read_state(&state_path)?;
-                state.workspace.tmux_session = session_name;
-                state.touch();
-                write_state(&state_path, &state)?;
-
-                return Ok(());
-            }
-            Err(e) => {
-                println!("tmux unavailable ({}), running directly...", e);
-            }
-        }
-    }
-
-    // Direct execution: run claude with the prompt
-    println!("starting {} agent for {}...", role, work_id);
+    // Run claude interactively — the user needs to be in the conversation
+    println!("starting {} agent for {} (interactive)", role, work_id);
+    println!("  the agent will ask you questions — answer them to refine the output");
+    println!("  when the agent is done, type /exit to return to PFM");
     println!("---");
 
     let status = Command::new("claude")
-        .args(["--print", &prompt])
+        .args(["--resume", "--init", prompt_file.to_str().unwrap_or("")])
         .current_dir(&cwd)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
         .status()
+        .or_else(|_| {
+            // Fall back to passing prompt as positional arg
+            Command::new("claude")
+                .arg(&prompt)
+                .current_dir(&cwd)
+                .stdin(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .status()
+        })
         .map_err(|e| format!("failed to start claude: {}", e))?;
+
+    // Clean up temp file
+    let _ = fs::remove_file(&prompt_file);
 
     if !status.success() {
         let log_entry = format!(
@@ -187,6 +189,22 @@ mod tests {
         assert!(prompt.contains("state.json"));
         assert!(prompt.contains("handoffs"));
         assert!(prompt.contains("role spec"));
+    }
+
+    #[test]
+    fn test_render_bootstrap_prompt_asks_questions() {
+        let dir = tempdir().unwrap();
+        let work_dir = dir.path().join("work/FEAT-001");
+        let prompt = render_bootstrap_prompt(&Role::Prd, &work_dir, dir.path());
+        assert!(prompt.contains("Ask the user clarifying questions"));
+    }
+
+    #[test]
+    fn test_render_bootstrap_prompt_exit_instruction() {
+        let dir = tempdir().unwrap();
+        let work_dir = dir.path().join("work/FEAT-001");
+        let prompt = render_bootstrap_prompt(&Role::Prd, &work_dir, dir.path());
+        assert!(prompt.contains("/exit"));
     }
 
     #[test]

@@ -103,24 +103,21 @@ pub fn run(
 
         println!("=== gate: {} | role: {} ===", next_gate, role);
 
-        // Start the agent
+        // Start the agent — runs interactively, blocks until user exits
         crate::commands::agent::start(base, &role, work_id)?;
 
-        // Wait for completion signals
-        let start_time = Utc::now();
-        let completed = wait_for_completion(base, work_id, next_gate, &role, start_time)?;
-
-        if !completed {
-            println!("agent did not complete — manual intervention may be needed");
-            println!("  resume with: pfm agent nudge {} {}", role, work_id);
-            return Ok(());
-        }
-
-        // Re-read state after agent completion
+        // Agent session ended — check what happened
+        println!();
         let state = read_state(&work_dir.join("state.json"))?;
         let gate_status = state.gates.get(next_gate).cloned().unwrap_or(GateStatus::Todo);
 
         println!("gate '{}' = {}", next_gate, gate_status);
+
+        if !gate_status.is_terminal() {
+            println!("agent exited but gate '{}' is still {} — not complete", next_gate, gate_status);
+            println!("  restart with: pfm agent start {} {}", role, work_id);
+            return Ok(());
+        }
 
         // Auto-run check after tests/impl gates
         if next_gate == "tests" || next_gate == "impl" {
@@ -453,7 +450,8 @@ fn apply_reroute_rules(state: &state::WorkState, gate: &str) -> RerouteAction {
     }
 }
 
-/// Wait for completion: gate is terminal AND handoff file exists
+/// Wait for completion: gate is terminal AND handoff file exists (used by teams mode polling)
+#[allow(dead_code)]
 fn wait_for_completion(
     base: &Path,
     work_id: &str,
@@ -502,6 +500,7 @@ fn wait_for_completion(
     Ok(false)
 }
 
+#[allow(dead_code)]
 fn has_recent_handoff(
     handoffs_dir: &Path,
     role_name: &str,
