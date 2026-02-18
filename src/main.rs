@@ -1,3 +1,4 @@
+mod adapters;
 mod commands;
 mod config;
 mod state;
@@ -18,6 +19,30 @@ struct Cli {
 enum Commands {
     /// Initialize .pfm/ structure in the current repo
     Init,
+
+    /// Work item management
+    #[command(subcommand)]
+    Work(WorkCommands),
+}
+
+#[derive(Subcommand)]
+enum WorkCommands {
+    /// Create a new work item
+    New {
+        /// Work item title
+        title: String,
+
+        /// Explicit work ID (e.g., FEAT-login)
+        #[arg(long)]
+        id: Option<String>,
+
+        /// Technology stack
+        #[arg(long)]
+        stack: Option<String>,
+    },
+
+    /// List all work items
+    List,
 }
 
 fn find_repo_root() -> Result<PathBuf, String> {
@@ -44,6 +69,23 @@ fn main() {
                 env::current_dir().expect("cannot determine working directory")
             });
             commands::init::run(&base)
+        }
+
+        Commands::Work(WorkCommands::New { title, id, stack }) => {
+            let base = find_repo_root().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            commands::work::new_work(&base, &title, id.as_deref(), stack.as_deref())
+                .map(|_| ())
+        }
+
+        Commands::Work(WorkCommands::List) => {
+            let base = find_repo_root().unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            });
+            commands::work::list_work(&base)
         }
     };
 
