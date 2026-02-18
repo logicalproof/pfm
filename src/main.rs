@@ -43,8 +43,8 @@ enum Commands {
         #[arg(long)]
         to: Option<String>,
 
-        /// Execution mode
-        #[arg(long, default_value = "classic")]
+        /// Execution mode (auto, classic, teams)
+        #[arg(long, default_value = "auto")]
         mode: String,
     },
 
