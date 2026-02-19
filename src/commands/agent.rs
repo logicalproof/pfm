@@ -75,11 +75,6 @@ pub fn start(base: &Path, role: &Role, work_id: &str) -> Result<(), String> {
         base.to_string_lossy().to_string()
     };
 
-    // Write the bootstrap prompt to a temp file so we don't have shell escaping issues
-    let prompt_file = work_dir.join(".prompt.tmp");
-    fs::write(&prompt_file, &prompt)
-        .map_err(|e| format!("failed to write prompt file: {}", e))?;
-
     // Run claude interactively — the user needs to be in the conversation
     println!("starting {} agent for {} (interactive)", role, work_id);
     println!("  the agent will ask you questions — answer them to refine the output");
@@ -87,26 +82,13 @@ pub fn start(base: &Path, role: &Role, work_id: &str) -> Result<(), String> {
     println!("---");
 
     let status = Command::new("claude")
-        .args(["--resume", "--init", prompt_file.to_str().unwrap_or("")])
+        .arg(&prompt)
         .current_dir(&cwd)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .status()
-        .or_else(|_| {
-            // Fall back to passing prompt as positional arg
-            Command::new("claude")
-                .arg(&prompt)
-                .current_dir(&cwd)
-                .stdin(std::process::Stdio::inherit())
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .status()
-        })
         .map_err(|e| format!("failed to start claude: {}", e))?;
-
-    // Clean up temp file
-    let _ = fs::remove_file(&prompt_file);
 
     if !status.success() {
         let log_entry = format!(
